@@ -330,10 +330,10 @@ def extrair_links_portalfacil(page, alvo_url):
 
     for guid in guids_encontrados:
         guid_upper = guid.upper()
-        url = f"https://portalfacilarquivos.blob.core.windows.net/uploads/{cidade_blob}/diario/%7B{guid_upper}%7D/%7B{guid_upper}%7D.pdf"
-        if url not in seen_links:
-            links_candidatos.append(url)
-            seen_links.add(url)
+        url_pdf = f"https://{base_domain}/abrir_arquivo.aspx?cdLocal=12&arquivo=%7B{guid_upper}%7D.pdf"
+        if url_pdf not in seen_links:
+            links_candidatos.append(url_pdf)
+            seen_links.add(url_pdf)
 
     # Fallback: tenta links diretos com termos de interesse
     if not links_candidatos:
