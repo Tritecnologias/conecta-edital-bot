@@ -273,7 +273,8 @@ def extrair_links_imprensa_oficial(page, alvo_url):
     for link in elementos:
         try:
             href = link.get_attribute("href")
-            if href and any(t in href.lower() for t in termos_interesse):
+            if not href or href.startswith("javascript"): continue
+            if any(t in href.lower() for t in termos_interesse):
                 if not href.startswith("http"): href = "https://imprensaoficialmunicipal.com.br" + href
                 if href not in seen_links:
                     links_candidatos.append(href)
@@ -282,53 +283,61 @@ def extrair_links_imprensa_oficial(page, alvo_url):
     return links_candidatos
 
 def extrair_links_portalfacil(page, alvo_url):
-    """Layout portalfacil / invista.valadares e similares — iframe com diário"""
+    """Layout portalfacil / invista.valadares — usa JS GetDiario() para carregar PDFs via interceptação de rede"""
+    from urllib.parse import urljoin
     links_candidatos = []
     seen_links = set()
-    termos_interesse = ["pdf", "download", "arquivo", "diario", "publicacao", "edicao", "visualizar", "anexo"]
-    
-    # Espera mais para JS carregar
+
     page.wait_for_timeout(3000)
-    
-    # Tenta achar links diretos primeiro
+
+    # Coleta links JS do tipo GetDiario(N) e GetDiarioData(timestamp)
     elementos = page.locator("a").all()
+    js_calls = []
     for link in elementos:
         try:
             href = link.get_attribute("href") or ""
+            onclick = link.get_attribute("onclick") or ""
+            combined = href + onclick
+            if "GetDiario(" in combined or "GetDiarioData(" in combined or "GetDiarioEletronicoCalendar(" in combined:
+                js_calls.append((link, combined))
+        except: continue
+
+    # Intercepta requisições de rede para capturar URLs de PDF geradas pelo JS
+    pdf_urls = []
+
+    def handle_request(request):
+        url = request.url
+        if url.lower().endswith(".pdf") or "pdf" in url.lower() or "diario" in url.lower():
+            if url not in seen_links and url.startswith("http"):
+                pdf_urls.append(url)
+                seen_links.add(url)
+
+    page.on("request", handle_request)
+
+    # Clica nos primeiros 5 links JS para disparar as requisições
+    for link_el, _ in js_calls[:5]:
+        try:
+            link_el.click(timeout=5000)
+            page.wait_for_timeout(2000)
+        except: pass
+
+    page.remove_listener("request", handle_request)
+
+    if pdf_urls:
+        return pdf_urls
+
+    # Fallback: tenta links diretos com termos de interesse
+    termos_interesse = ["pdf", "download", "arquivo", "diario", "publicacao", "edicao", "visualizar", "anexo"]
+    for link in page.locator("a").all():
+        try:
+            href = link.get_attribute("href") or ""
+            if href.startswith("javascript"): continue
             if any(t in href.lower() for t in termos_interesse) and href not in seen_links:
                 if not href.startswith("http"):
-                    from urllib.parse import urljoin
                     href = urljoin(alvo_url, href)
                 links_candidatos.append(href)
                 seen_links.add(href)
         except: continue
-
-    # Tenta entrar no iframe se existir
-    try:
-        iframes = page.locator("iframe").all()
-        for iframe_el in iframes:
-            src = iframe_el.get_attribute("src")
-            if src and src != "None" and src.startswith("http"):
-                try:
-                    frame = page.frame(url=src)
-                    if not frame:
-                        # navega em nova página para o iframe
-                        p2 = page.context.new_page()
-                        p2.goto(src, timeout=20000)
-                        p2.wait_for_timeout(2000)
-                        for link in p2.locator("a").all():
-                            try:
-                                href = link.get_attribute("href") or ""
-                                if any(t in href.lower() for t in termos_interesse) and href not in seen_links:
-                                    if not href.startswith("http"):
-                                        from urllib.parse import urljoin
-                                        href = urljoin(src, href)
-                                    links_candidatos.append(href)
-                                    seen_links.add(href)
-                            except: continue
-                        p2.close()
-                except: pass
-    except: pass
 
     return links_candidatos
 
