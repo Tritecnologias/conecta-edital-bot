@@ -283,61 +283,72 @@ def extrair_links_imprensa_oficial(page, alvo_url):
     return links_candidatos
 
 def extrair_links_portalfacil(page, alvo_url):
-    """Layout portalfacil / invista.valadares — usa JS GetDiario() para carregar PDFs via interceptação de rede"""
-    from urllib.parse import urljoin
+    """Layout portalfacil / invista.valadares — chama API AjaxPro diretamente para obter GUIDs dos PDFs"""
+    import re
+    from urllib.parse import urlparse
+
     links_candidatos = []
     seen_links = set()
 
-    page.wait_for_timeout(3000)
+    # Intercepta a resposta AjaxPro que contém a DataTable com os arquivos
+    ajax_data = []
+    def on_response(res):
+        if "ajaxpro/diel_diel_lis" in res.url:
+            try:
+                body = res.body().decode("utf-8", errors="ignore")
+                if "NMARQUIVO" in body or "NMARQUIVO" in body:
+                    ajax_data.append(body)
+            except: pass
 
-    # Coleta links JS do tipo GetDiario(N) e GetDiarioData(timestamp)
-    elementos = page.locator("a").all()
-    js_calls = []
-    for link in elementos:
+    page.on("response", on_response)
+    page.wait_for_timeout(2000)
+
+    # Clica no primeiro GetDiario para disparar a requisição AJAX
+    links = page.locator("a").all()
+    for l in links:
         try:
-            href = link.get_attribute("href") or ""
-            onclick = link.get_attribute("onclick") or ""
-            combined = href + onclick
-            if "GetDiario(" in combined or "GetDiarioData(" in combined or "GetDiarioEletronicoCalendar(" in combined:
-                js_calls.append((link, combined))
-        except: continue
-
-    # Intercepta requisições de rede para capturar URLs de PDF geradas pelo JS
-    pdf_urls = []
-
-    def handle_request(request):
-        url = request.url
-        if url.lower().endswith(".pdf") or "pdf" in url.lower() or "diario" in url.lower():
-            if url not in seen_links and url.startswith("http"):
-                pdf_urls.append(url)
-                seen_links.add(url)
-
-    page.on("request", handle_request)
-
-    # Clica nos primeiros 5 links JS para disparar as requisições
-    for link_el, _ in js_calls[:5]:
-        try:
-            link_el.click(timeout=5000)
-            page.wait_for_timeout(2000)
+            href = l.get_attribute("href") or ""
+            if "GetDiario(1)" in href:
+                l.click(timeout=5000)
+                page.wait_for_timeout(4000)
+                break
         except: pass
 
-    page.remove_listener("request", handle_request)
+    page.remove_listener("response", on_response)
 
-    if pdf_urls:
-        return pdf_urls
+    # Extrai GUIDs do tipo {XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX} das respostas AJAX
+    base_domain = urlparse(alvo_url).netloc  # ex: invista.valadares.mg.gov.br
+    # Tenta montar URL do blob storage a partir do domínio
+    # Padrão: portalfacilarquivos.blob.core.windows.net/uploads/CIDADE/diario/{GUID}/{GUID}.pdf
+    # Extrai o nome da cidade do domínio (ex: GOVERNADORVALADARES)
+    cidade_blob = base_domain.split(".")[0].upper().replace("-", "")
+
+    guids_encontrados = []
+    for body in ajax_data:
+        guids = re.findall(r'\{([0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12})\}', body)
+        guids_encontrados.extend(guids)
+
+    for guid in guids_encontrados:
+        guid_upper = guid.upper()
+        url = f"https://portalfacilarquivos.blob.core.windows.net/uploads/{cidade_blob}/diario/%7B{guid_upper}%7D/%7B{guid_upper}%7D.pdf"
+        if url not in seen_links:
+            links_candidatos.append(url)
+            seen_links.add(url)
 
     # Fallback: tenta links diretos com termos de interesse
-    termos_interesse = ["pdf", "download", "arquivo", "diario", "publicacao", "edicao", "visualizar", "anexo"]
-    for link in page.locator("a").all():
-        try:
-            href = link.get_attribute("href") or ""
-            if href.startswith("javascript"): continue
-            if any(t in href.lower() for t in termos_interesse) and href not in seen_links:
-                if not href.startswith("http"):
-                    href = urljoin(alvo_url, href)
-                links_candidatos.append(href)
-                seen_links.add(href)
-        except: continue
+    if not links_candidatos:
+        termos_interesse = ["pdf", "download", "arquivo", "diario", "publicacao", "edicao", "visualizar", "anexo"]
+        from urllib.parse import urljoin
+        for link in page.locator("a").all():
+            try:
+                href = link.get_attribute("href") or ""
+                if href.startswith("javascript"): continue
+                if any(t in href.lower() for t in termos_interesse) and href not in seen_links:
+                    if not href.startswith("http"):
+                        href = urljoin(alvo_url, href)
+                    links_candidatos.append(href)
+                    seen_links.add(href)
+            except: continue
 
     return links_candidatos
 
