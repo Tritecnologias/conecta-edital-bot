@@ -8,7 +8,7 @@ from sqlalchemy.sql import text
 DATABASE_URL = "postgresql://crawler_user:MudarEssaSenha123@localhost/diario_db"
 
 # Cria a "Engine" (o motor de conexão)
-engine = create_engine(DATABASE_URL)
+engine = create_engine(DATABASE_URL, pool_pre_ping=True, pool_recycle=300)
 
 # Cria a "Session" (a sessão que vamos usar para mandar comandos)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

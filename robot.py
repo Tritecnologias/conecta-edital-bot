@@ -58,9 +58,13 @@ def log_debug(mensagem):
 def garantir_keyword_manual():
     session = SessionLocal()
     try:
-        session.execute(text("INSERT INTO keywords (id, termo, ativo) VALUES (9999, 'Busca Manual', true) ON CONFLICT (id) DO NOTHING"))
-        session.commit()
-    except Exception as e: pass
+        existente = session.execute(text("SELECT id FROM keywords WHERE id = 9999")).fetchone()
+        if not existente:
+            session.execute(text("INSERT INTO keywords (id, termo, ativo) VALUES (9999, 'Busca Manual', true)"))
+            session.commit()
+    except Exception as e:
+        session.rollback()
+        log_debug(f"Erro ao inserir Keyword Manual: {e}")
     finally: session.close()
 
 def calcular_hash_arquivo(caminho_arquivo):
@@ -194,14 +198,21 @@ def extrair_texto_v29(caminho_pdf, pagina_numero, pagina_obj_pdfplumber, termos_
     return final_padrao, final_cola, texto_raw_completo
 
 def worker_processar_pdf(dados_pacote):
-    engine.dispose() 
+    # Isolamento crítico de conexão para ProcessPoolExecutor no Windows
+    from database import DATABASE_URL
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+    from sqlalchemy.pool import NullPool
+    
+    local_engine = create_engine(DATABASE_URL, poolclass=NullPool)
+    LocalSession = sessionmaker(autocommit=False, autoflush=False, bind=local_engine)
+    session = LocalSession()
+    
     link_pdf = dados_pacote['link']
     cidade_nome = dados_pacote['cidade']
     contador = dados_pacote['contador']
     palavras_extras = dados_pacote['palavras_extras']
     modo_bruto = dados_pacote.get('modo_bruto', False) 
-    
-    session = SessionLocal()
     try:
         sufixo = f"_{contador}"
         nome_arquivo = f"{cidade_nome.replace(' ', '_')}_{date.today()}{sufixo}.pdf"
@@ -262,7 +273,9 @@ def worker_processar_pdf(dados_pacote):
         if achados_unicos: return f"✅ Doc {contador}: Achou {', '.join(achados_unicos)}"
         else: return f"✅ Doc {contador}: Limpo"
     except Exception as e: return f"❌ Erro Geral Worker {contador}: {e}"
-    finally: session.close()
+    finally: 
+        session.close()
+        local_engine.dispose()
 
 def extrair_links_imprensa_oficial(page, alvo_url):
     """Layout padrão: imprensaoficialmunicipal.com.br"""
