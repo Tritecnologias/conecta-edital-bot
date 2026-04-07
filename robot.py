@@ -286,17 +286,19 @@ def worker_processar_pdf(dados_pacote):
         local_engine.dispose()
 
 def extrair_links_imprensa_oficial(page, alvo_url):
-    """Layout padrão: imprensaoficialmunicipal.com.br"""
+    """Layout padrão genérico — reconstrói URLs relativas usando o domínio real do site."""
+    from urllib.parse import urljoin
     links_candidatos = []
     seen_links = set()
-    termos_interesse = ["visualizar", "exibe_do", "pdf", "anexo", "integra", "download", "arquivo", "publicacao"]
+    termos_interesse = ["visualizar", "exibe_do", "pdf", "anexo", "integra", "download", "arquivo", "publicacao", "edicao", "diario", "ler"]
     elementos = page.locator("a").all()
     for link in elementos:
         try:
             href = link.get_attribute("href")
-            if not href or href.startswith("javascript"): continue
+            if not href or href.startswith("javascript") or href == "#": continue
             if any(t in href.lower() for t in termos_interesse):
-                if not href.startswith("http"): href = "https://imprensaoficialmunicipal.com.br" + href
+                if not href.startswith("http"):
+                    href = urljoin(alvo_url, href)
                 if href not in seen_links:
                     links_candidatos.append(href)
                     seen_links.add(href)
