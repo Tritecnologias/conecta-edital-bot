@@ -487,6 +487,15 @@ def extrair_links_criciuma(page, alvo_url):
     links_pdf = []
     seen_links = set()
 
+    print("[DEBUG] extrair_links_criciuma: iniciando...", flush=True)
+    
+    # Escreve arquivo antes de qualquer chamada Playwright
+    try:
+        with open("debug_criciuma.txt", "w", encoding="utf-8") as f:
+            f.write(f"extrair_links_criciuma iniciada\nalvo_url={alvo_url}\n")
+    except Exception as e:
+        print(f"[DEBUG] Falha ao escrever debug_criciuma.txt: {e}", flush=True)
+
     # Aguarda carregamento completo da listagem
     try:
         page.wait_for_load_state("domcontentloaded", timeout=15000)
@@ -566,6 +575,7 @@ def extrair_links_criciuma(page, alvo_url):
 def detectar_layout_e_extrair(page, alvo_url):
     """Detecta o tipo de site e usa o extrator correto."""
     url_lower = alvo_url.lower()
+    print(f"[DEBUG] detectar_layout_e_extrair: url={alvo_url}", flush=True)
     
     if "ingadigital.com.br" in url_lower or "controlemunicipal.com.br" in url_lower:
         return extrair_links_controlemunicipal(page, alvo_url)
@@ -577,9 +587,11 @@ def detectar_layout_e_extrair(page, alvo_url):
         return extrair_links_portalfacil(page, alvo_url)
 
     if "criciuma.sc.gov.br" in url_lower:
+        print("[DEBUG] Detectou Criciuma! Chamando extrair_links_criciuma", flush=True)
         return extrair_links_criciuma(page, alvo_url)
     
     # Default: imprensa oficial municipal
+    print("[DEBUG] Usando extrator padrao", flush=True)
     return extrair_links_imprensa_oficial(page, alvo_url)
 
 def processar_cidade(cidade_nome, alvo_url, palavras_chave_manual="", forcar=False):
