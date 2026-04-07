@@ -219,16 +219,19 @@ def worker_processar_pdf(dados_pacote):
         caminho_final = os.path.join(PASTA_PDFS, nome_arquivo)
         
         try:
+            cookies_req = dados_pacote.get('cookies', {})
+            referer_url = dados_pacote.get('referer', '')
             headers = {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-                'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7'
+                'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7',
+                'Referer': referer_url
             }
-            resp = requests.get(link_pdf, stream=True, verify=False, timeout=60, headers=headers)
+            resp = requests.get(link_pdf, stream=True, verify=False, timeout=60, headers=headers, cookies=cookies_req)
             if resp.status_code == 200:
                 with open(caminho_final, "wb") as f:
                     for chunk in resp.iter_content(8192): f.write(chunk)
-            else: return f"❌ Erro HTTP {contador}"
+            else: return f"❌ Erro HTTP {contador} (status {resp.status_code})"
         except Exception as e: return f"❌ Erro Download {contador}: {e}"
 
         hash_arq = calcular_hash_arquivo(caminho_final)
@@ -495,6 +498,10 @@ def processar_cidade(cidade_nome, alvo_url, palavras_chave_manual="", forcar=Fal
                 except: pass
                 return "🚨 CRÍTICO: Zero arquivos encontrados! O site pode ter mudado o layout ou está offline. Verifique manualmente."
 
+            # Captura cookies do Playwright para repassar ao requests (evita 403 por sessão)
+            cookies_playwright = page.context.cookies()
+            cookies_dict = {c['name']: c['value'] for c in cookies_playwright}
+
             session_main = SessionLocal()
             tarefas = []
             contador = 0
@@ -516,7 +523,9 @@ def processar_cidade(cidade_nome, alvo_url, palavras_chave_manual="", forcar=Fal
                         "cidade": cidade_nome, 
                         "contador": contador, 
                         "palavras_extras": palavras_chave_manual,
-                        "modo_bruto": forcar 
+                        "modo_bruto": forcar,
+                        "cookies": cookies_dict,
+                        "referer": alvo_url
                     })
             finally: session_main.close()
 
