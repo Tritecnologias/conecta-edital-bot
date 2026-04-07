@@ -493,6 +493,21 @@ def extrair_links_criciuma(page, alvo_url):
         page.wait_for_timeout(3000)
     except: pass
 
+    # DIAGNÓSTICO - remove depois de funcionar
+    try:
+        page.screenshot(path="debug_criciuma_lista.png")
+        total_links = page.locator("a").count()
+        total_does = page.locator("a.does").count()
+        url_atual = page.url
+        with open("debug_criciuma.txt", "w", encoding="utf-8") as f:
+            f.write(f"URL atual: {url_atual}\n")
+            f.write(f"Total <a>: {total_links}\n")
+            f.write(f"Total <a.does>: {total_does}\n")
+            hrefs = [page.locator("a").nth(i).get_attribute("href") or "" for i in range(min(20, total_links))]
+            f.write(f"Primeiros 20 hrefs:\n" + "\n".join(hrefs))
+    except Exception as diag_e:
+        log_debug(f"Diagnóstico Criciuma falhou: {diag_e}")
+
     # Nivel 1: pega links — seletor pela classe CSS real do site (a.does)
     paginas_diario = []
     seen_paginas = set()
