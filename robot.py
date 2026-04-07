@@ -481,6 +481,52 @@ def extrair_links_controlemunicipal(page, alvo_url):
 
     return links_pdf if links_pdf else links_candidatos
 
+def extrair_links_criciuma(page, alvo_url):
+    """Layout criciuma.sc.gov.br/does.php — dois niveis: lista de paginas HTML, cada uma tem o PDF certificado"""
+    from urllib.parse import urljoin
+    links_pdf = []
+    seen_links = set()
+
+    # Nivel 1: pega links para paginas individuais de diario (doe.php?diario=XXXX)
+    paginas_diario = []
+    seen_paginas = set()
+    for link in page.locator("a").all():
+        try:
+            href = link.get_attribute("href") or ""
+            if "doe.php" in href and "diario=" in href:
+                if not href.startswith("http"): href = urljoin(alvo_url, href)
+                href = href.split("#")[0]  # remove ancora
+                if href not in seen_paginas:
+                    paginas_diario.append(href)
+                    seen_paginas.add(href)
+        except: continue
+
+    # Nivel 2: entra em cada pagina e busca o link do PDF (Versao certificada)
+    for url_diario in paginas_diario[:15]:  # limita para nao demorar demais
+        try:
+            p2 = page.context.new_page()
+            p2.goto(url_diario, timeout=25000)
+            p2.wait_for_timeout(1500)
+            for link in p2.locator("a").all():
+                try:
+                    href = link.get_attribute("href") or ""
+                    texto = link.inner_text().strip().lower()
+                    if not href.startswith("http"): href = urljoin(url_diario, href)
+                    # Aceita links PDF direto ou links de download/versao certificada
+                    if href.lower().endswith(".pdf") and href not in seen_links:
+                        links_pdf.append(href)
+                        seen_links.add(href)
+                    elif any(t in texto for t in ["certificad", "download", "pdf"]) and href not in seen_links:
+                        # Tenta seguir o link para ver se redireciona para PDF
+                        links_pdf.append(href)
+                        seen_links.add(href)
+                        break  # pega apenas o primeiro candidato por pagina
+                except: continue
+            p2.close()
+        except: pass
+
+    return links_pdf
+
 def detectar_layout_e_extrair(page, alvo_url):
     """Detecta o tipo de site e usa o extrator correto."""
     url_lower = alvo_url.lower()
@@ -493,6 +539,9 @@ def detectar_layout_e_extrair(page, alvo_url):
     
     if "portalfacil.com.br" in url_lower or "invista." in url_lower or "valadares.mg.gov.br" in url_lower:
         return extrair_links_portalfacil(page, alvo_url)
+
+    if "criciuma.sc.gov.br" in url_lower:
+        return extrair_links_criciuma(page, alvo_url)
     
     # Default: imprensa oficial municipal
     return extrair_links_imprensa_oficial(page, alvo_url)
