@@ -229,8 +229,25 @@ def worker_processar_pdf(dados_pacote):
             }
             resp = requests.get(link_pdf, stream=True, verify=False, timeout=60, headers=headers, cookies=cookies_req)
             if resp.status_code == 200:
+                content_type = resp.headers.get('Content-Type', '')
+                # Detecta se é realmente um PDF (Content-Type ou magic bytes %PDF)
+                is_pdf_content_type = 'pdf' in content_type.lower() or 'octet-stream' in content_type.lower()
+                
+                # Coleta os primeiros bytes para verificar magic bytes independente do Content-Type
+                primeiros_bytes = b''
+                chunks_restantes = []
+                for chunk in resp.iter_content(8192):
+                    if not primeiros_bytes:
+                        primeiros_bytes = chunk
+                    else:
+                        chunks_restantes.append(chunk)
+                
+                if not is_pdf_content_type and not primeiros_bytes.startswith(b'%PDF'):
+                    return f"⚠️ Doc {contador}: não é PDF ({content_type.split(';')[0].strip()}), ignorado"
+                
                 with open(caminho_final, "wb") as f:
-                    for chunk in resp.iter_content(8192): f.write(chunk)
+                    f.write(primeiros_bytes)
+                    for chunk in chunks_restantes: f.write(chunk)
             else: return f"❌ Erro HTTP {contador} (status {resp.status_code})"
         except Exception as e: return f"❌ Erro Download {contador}: {e}"
 
@@ -290,7 +307,7 @@ def extrair_links_imprensa_oficial(page, alvo_url):
     from urllib.parse import urljoin
     links_candidatos = []
     seen_links = set()
-    termos_interesse = ["visualizar", "exibe_do", "pdf", "anexo", "integra", "download", "arquivo", "publicacao", "edicao", "diario", "ler"]
+    termos_interesse = ["visualizar", "exibe_do", "pdf", "anexo", "integra", "download", "arquivo", "publicacao", "edicao", "diario"]
     elementos = page.locator("a").all()
     for link in elementos:
         try:
