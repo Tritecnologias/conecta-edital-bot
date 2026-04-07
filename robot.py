@@ -547,12 +547,16 @@ def extrair_links_criciuma(page, alvo_url):
             except: continue
 
     # Nivel 2: entra em cada pagina e busca o PDF (Versao certificada)
+    print(f"[DEBUG] Criciuma Level1: {len(paginas_diario)} paginas encontradas", flush=True)
     for url_diario in paginas_diario[:15]:
         try:
             p2 = page.context.new_page()
-            p2.goto(url_diario, timeout=25000)
-            p2.wait_for_load_state("domcontentloaded", timeout=10000)
-            p2.wait_for_timeout(1500)
+            print(f"[DEBUG] Abrindo: {url_diario}", flush=True)
+            p2.goto(url_diario, timeout=30000)
+            p2.wait_for_load_state("domcontentloaded", timeout=15000)
+            p2.wait_for_timeout(2000)
+            num_links_p2 = p2.locator("a").count()
+            print(f"[DEBUG] Pagina tem {num_links_p2} links", flush=True)
             for link in p2.locator("a").all():
                 try:
                     href = link.get_attribute("href") or ""
@@ -568,7 +572,8 @@ def extrair_links_criciuma(page, alvo_url):
                         break
                 except: continue
             p2.close()
-        except: pass
+        except Exception as e2:
+            print(f"[DEBUG] Erro Level2 {url_diario}: {e2}", flush=True)
 
     return links_pdf
 
