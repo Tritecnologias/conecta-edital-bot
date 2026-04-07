@@ -487,40 +487,61 @@ def extrair_links_criciuma(page, alvo_url):
     links_pdf = []
     seen_links = set()
 
-    # Nivel 1: pega links para paginas individuais de diario (doe.php?diario=XXXX)
+    # Aguarda carregamento completo da listagem
+    try:
+        page.wait_for_load_state("domcontentloaded", timeout=15000)
+        page.wait_for_timeout(3000)
+    except: pass
+
+    # Nivel 1: pega links — seletor pela classe CSS real do site (a.does)
     paginas_diario = []
     seen_paginas = set()
-    for link in page.locator("a").all():
-        try:
-            href = link.get_attribute("href") or ""
-            if "doe.php" in href and "diario=" in href:
+    try:
+        for link in page.locator("a.does").all():
+            try:
+                href = link.get_attribute("href") or ""
+                if not href: continue
                 if not href.startswith("http"): href = urljoin(alvo_url, href)
-                href = href.split("#")[0]  # remove ancora
+                href = href.split("#")[0]
                 if href not in seen_paginas:
                     paginas_diario.append(href)
                     seen_paginas.add(href)
-        except: continue
+            except: continue
+    except: pass
 
-    # Nivel 2: entra em cada pagina e busca o link do PDF (Versao certificada)
-    for url_diario in paginas_diario[:15]:  # limita para nao demorar demais
+    # Fallback: qualquer <a> com doe.php?diario= no href
+    if not paginas_diario:
+        for link in page.locator("a").all():
+            try:
+                href = link.get_attribute("href") or ""
+                if "doe.php" in href and "diario=" in href:
+                    if not href.startswith("http"): href = urljoin(alvo_url, href)
+                    href = href.split("#")[0]
+                    if href not in seen_paginas:
+                        paginas_diario.append(href)
+                        seen_paginas.add(href)
+            except: continue
+
+    # Nivel 2: entra em cada pagina e busca o PDF (Versao certificada)
+    for url_diario in paginas_diario[:15]:
         try:
             p2 = page.context.new_page()
             p2.goto(url_diario, timeout=25000)
+            p2.wait_for_load_state("domcontentloaded", timeout=10000)
             p2.wait_for_timeout(1500)
             for link in p2.locator("a").all():
                 try:
                     href = link.get_attribute("href") or ""
                     texto = link.inner_text().strip().lower()
                     if not href.startswith("http"): href = urljoin(url_diario, href)
-                    # Aceita links PDF direto ou links de download/versao certificada
                     if href.lower().endswith(".pdf") and href not in seen_links:
                         links_pdf.append(href)
                         seen_links.add(href)
-                    elif any(t in texto for t in ["certificad", "download", "pdf"]) and href not in seen_links:
-                        # Tenta seguir o link para ver se redireciona para PDF
+                        break
+                    elif any(t in texto for t in ["certificad", "download"]) and href not in seen_links and href.startswith("http"):
                         links_pdf.append(href)
                         seen_links.add(href)
-                        break  # pega apenas o primeiro candidato por pagina
+                        break
                 except: continue
             p2.close()
         except: pass
