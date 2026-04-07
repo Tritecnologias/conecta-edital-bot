@@ -546,32 +546,38 @@ def extrair_links_criciuma(page, alvo_url):
                         seen_paginas.add(href)
             except: continue
 
-    # Nivel 2: entra em cada pagina e busca o PDF (Versao certificada)
-    print(f"[DEBUG] Criciuma Level1: {len(paginas_diario)} paginas encontradas", flush=True)
+    # Nivel 2: usa requests+BeautifulSoup para buscar o PDF em cada pagina individual
+    # (evita erro "Please use browser.new_context()" do Playwright)
+    import requests as req_mod
+    from bs4 import BeautifulSoup
+    headers_req = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'pt-BR,pt;q=0.9',
+        'Referer': alvo_url
+    }
+    print(f"[DEBUG] Criciuma Level1: {len(paginas_diario)} paginas. Iniciando Level2 via requests...", flush=True)
     for url_diario in paginas_diario[:15]:
         try:
-            p2 = page.context.new_page()
-            print(f"[DEBUG] Abrindo: {url_diario}", flush=True)
-            p2.goto(url_diario, timeout=30000)
-            p2.wait_for_load_state("domcontentloaded", timeout=15000)
-            p2.wait_for_timeout(2000)
-            num_links_p2 = p2.locator("a").count()
-            print(f"[DEBUG] Pagina tem {num_links_p2} links", flush=True)
-            for link in p2.locator("a").all():
-                try:
-                    href = link.get_attribute("href") or ""
-                    texto = link.inner_text().strip().lower()
-                    if not href.startswith("http"): href = urljoin(url_diario, href)
-                    if href.lower().endswith(".pdf") and href not in seen_links:
-                        links_pdf.append(href)
-                        seen_links.add(href)
-                        break
-                    elif any(t in texto for t in ["certificad", "download"]) and href not in seen_links and href.startswith("http"):
-                        links_pdf.append(href)
-                        seen_links.add(href)
-                        break
-                except: continue
-            p2.close()
+            resp = req_mod.get(url_diario, headers=headers_req, timeout=20, verify=False)
+            if resp.status_code != 200:
+                print(f"[DEBUG] Level2 HTTP {resp.status_code} para {url_diario}", flush=True)
+                continue
+            soup = BeautifulSoup(resp.text, "html.parser")
+            for a in soup.find_all("a", href=True):
+                href = a["href"]
+                texto = a.get_text(strip=True).lower()
+                if not href.startswith("http"): href = urljoin(url_diario, href)
+                if href.lower().endswith(".pdf") and href not in seen_links:
+                    links_pdf.append(href)
+                    seen_links.add(href)
+                    print(f"[DEBUG] PDF encontrado: {href}", flush=True)
+                    break
+                elif any(t in texto for t in ["certificad", "download"]) and href not in seen_links and href.startswith("http"):
+                    links_pdf.append(href)
+                    seen_links.add(href)
+                    print(f"[DEBUG] Link candidato: {href} (texto: {texto})", flush=True)
+                    break
         except Exception as e2:
             print(f"[DEBUG] Erro Level2 {url_diario}: {e2}", flush=True)
 
