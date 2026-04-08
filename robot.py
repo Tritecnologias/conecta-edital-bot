@@ -197,6 +197,28 @@ def extrair_texto_v29(caminho_pdf, pagina_numero, pagina_obj_pdfplumber, termos_
     
     return final_padrao, final_cola, texto_raw_completo
 
+def _baixar_via_playwright(url, referer, caminho_destino):
+    """Fallback: usa Playwright para baixar PDF contornando proteções anti-bot."""
+    try:
+        from playwright.sync_api import sync_playwright
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            context = browser.new_context(accept_downloads=True)
+            page = context.new_page()
+            if referer:
+                page.goto(referer, timeout=20000)
+                page.wait_for_timeout(1000)
+            with page.expect_download(timeout=30000) as dl_info:
+                page.goto(url, timeout=30000)
+            download = dl_info.value
+            download.save_as(caminho_destino)
+            browser.close()
+            # Verifica se é PDF válido
+            with open(caminho_destino, 'rb') as f:
+                return f.read(4) == b'%PDF'
+    except:
+        return False
+
 def worker_processar_pdf(dados_pacote):
     # Isolamento crítico de conexão para ProcessPoolExecutor no Windows
     from database import DATABASE_URL
@@ -243,11 +265,14 @@ def worker_processar_pdf(dados_pacote):
                         chunks_restantes.append(chunk)
                 
                 if not is_pdf_content_type and not primeiros_bytes.startswith(b'%PDF'):
-                    return f"⚠️ Doc {contador}: não é PDF ({content_type.split(';')[0].strip()}), ignorado"
-                
-                with open(caminho_final, "wb") as f:
-                    f.write(primeiros_bytes)
-                    for chunk in chunks_restantes: f.write(chunk)
+                    # Fallback: tenta baixar via Playwright (contorna anti-bot)
+                    baixado = _baixar_via_playwright(link_pdf, referer_url, caminho_final)
+                    if not baixado:
+                        return f"⚠️ Doc {contador}: não é PDF ({content_type.split(';')[0].strip()}), ignorado"
+                else:
+                    with open(caminho_final, "wb") as f:
+                        f.write(primeiros_bytes)
+                        for chunk in chunks_restantes: f.write(chunk)
             else: return f"❌ Erro HTTP {contador} (status {resp.status_code})"
         except Exception as e: return f"❌ Erro Download {contador}: {e}"
 
