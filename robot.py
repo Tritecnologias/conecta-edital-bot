@@ -329,22 +329,48 @@ def worker_processar_pdf(dados_pacote):
 
 def extrair_links_imprensa_oficial(page, alvo_url):
     """Layout padrão genérico — reconstrói URLs relativas usando o domínio real do site."""
-    from urllib.parse import urljoin
+    from urllib.parse import urljoin, urlparse
     links_candidatos = []
     seen_links = set()
     termos_interesse = ["visualizar", "exibe_do", "pdf", "anexo", "integra", "download", "arquivo", "publicacao", "edicao", "diario"]
+    parsed = urlparse(alvo_url)
+    base_url = f"{parsed.scheme}://{parsed.netloc}"
+
     elementos = page.locator("a").all()
+    paginas_intermediarias = []
+
     for link in elementos:
         try:
             href = link.get_attribute("href")
             if not href or href.startswith("javascript") or href == "#": continue
-            if any(t in href.lower() for t in termos_interesse):
-                if not href.startswith("http"):
-                    href = urljoin(alvo_url, href)
-                if href not in seen_links:
-                    links_candidatos.append(href)
-                    seen_links.add(href)
+            href_full = urljoin(base_url, href) if not href.startswith("http") else href
+            # Páginas intermediárias que contêm o PDF embutido
+            if any(t in href.lower() for t in ["prepara-pdf", "visualizar", "exibe_do", "ler/"]):
+                paginas_intermediarias.append(href_full)
+            elif any(t in href.lower() for t in termos_interesse):
+                if href_full not in seen_links:
+                    links_candidatos.append(href_full)
+                    seen_links.add(href_full)
         except: continue
+
+    # Entra nas páginas intermediárias para extrair a URL real do PDF
+    for pag_url in paginas_intermediarias[:5]:
+        try:
+            p2 = page.context.new_page()
+            p2.goto(pag_url, timeout=20000)
+            p2.wait_for_timeout(2000)
+            # Captura URLs de PDF nas respostas de rede
+            for l in p2.locator("a, iframe").all():
+                try:
+                    href = l.get_attribute("href") or l.get_attribute("src") or ""
+                    if ".pdf" in href.lower() and href not in seen_links:
+                        href_full = urljoin(base_url, href) if not href.startswith("http") else href
+                        links_candidatos.append(href_full)
+                        seen_links.add(href_full)
+                except: continue
+            p2.close()
+        except: pass
+
     return links_candidatos
 
 def extrair_links_portalfacil(page, alvo_url):
