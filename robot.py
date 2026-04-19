@@ -452,9 +452,14 @@ def extrair_links_universal(page, alvo_url):
         html = page.content()
         # Procura URLs de download em qualquer atributo ou string JS (não só href)
         download_urls = re.findall(r'["\']([^"\']*(?:download|baixar)[^"\']*)["\']', html, re.IGNORECASE)
+        extensoes_ignorar = {'.png', '.jpg', '.jpeg', '.gif', '.svg', '.ico', '.webp', '.bmp', '.css', '.js'}
         for href in download_urls:
             if href.startswith("javascript") or href == "#" or len(href) < 10: continue
-            if not href.startswith("http") and not href.startswith("/"):continue
+            if not href.startswith("http") and not href.startswith("/"): continue
+            # Ignora imagens e assets
+            path_lower = href.split('?')[0].lower()
+            ext = '.' + path_lower.rsplit('.', 1)[-1] if '.' in path_lower.split('/')[-1] else ''
+            if ext in extensoes_ignorar: continue
             href_full = urljoin(base_url, href) if not href.startswith("http") else href
             if href_full not in seen and not _is_non_pdf_extension(href_full):
                 links_pdf.append(href_full)
