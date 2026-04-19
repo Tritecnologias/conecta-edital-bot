@@ -459,10 +459,8 @@ def extrair_links_universal(page, alvo_url):
             path_lower = href.split('?')[0].lower()
             ext = '.' + path_lower.rsplit('.', 1)[-1] if '.' in path_lower.split('/')[-1] else ''
             if ext in extensoes_ignorar: continue
-            # Ignora downloadEncrypted sem parâmetros longos (provavelmente imagem/asset)
-            if 'downloadencrypted' in href.lower():
-                params = href.split('?', 1)[-1] if '?' in href else ''
-                if len(params) < 100: continue  # PDFs reais têm parâmetros muito longos
+            # Ignora downloadEncrypted — tratado na Fase 2.7 via clique
+            if 'downloadencrypted' in href.lower(): continue
             href_full = urljoin(base_url, href) if not href.startswith("http") else href
             if href_full not in seen and not _is_non_pdf_extension(href_full):
                 links_pdf.append(href_full)
