@@ -456,15 +456,44 @@ def extrair_links_universal(page, alvo_url):
         for href in download_urls:
             if href.startswith("javascript") or href == "#" or len(href) < 10: continue
             if not href.startswith("http") and not href.startswith("/"): continue
-            # Ignora imagens e assets
             path_lower = href.split('?')[0].lower()
             ext = '.' + path_lower.rsplit('.', 1)[-1] if '.' in path_lower.split('/')[-1] else ''
             if ext in extensoes_ignorar: continue
+            # Ignora downloadEncrypted sem parâmetros longos (provavelmente imagem/asset)
+            if 'downloadencrypted' in href.lower():
+                params = href.split('?', 1)[-1] if '?' in href else ''
+                if len(params) < 100: continue  # PDFs reais têm parâmetros muito longos
             href_full = urljoin(base_url, href) if not href.startswith("http") else href
             if href_full not in seen and not _is_non_pdf_extension(href_full):
                 links_pdf.append(href_full)
                 seen.add(href_full)
     except: pass
+    
+    # === FASE 2.7: SPAs com listagem — clica em itens para revelar links de download ===
+    if not links_pdf:
+        try:
+            # Procura botões "Baixar" ou linhas de tabela com diários
+            botoes_baixar = page.locator("a, button").all()
+            clicados = 0
+            for btn in botoes_baixar:
+                try:
+                    txt = btn.inner_text().strip().lower()
+                    if txt in ["baixar", "download", "ver", "abrir"]:
+                        btn.click(timeout=3000)
+                        page.wait_for_timeout(2000)
+                        clicados += 1
+                        # Captura novos links de download no HTML atualizado
+                        html_atualizado = page.content()
+                        novos_downloads = re.findall(r'["\']([^"\']*downloadEncrypted[^"\']*)["\']', html_atualizado, re.IGNORECASE)
+                        for href in novos_downloads:
+                            if len(href) < 20: continue
+                            href_full = urljoin(base_url, href) if not href.startswith("http") else href
+                            if href_full not in seen:
+                                links_pdf.append(href_full)
+                                seen.add(href_full)
+                        if clicados >= 5 or links_pdf: break
+                except: continue
+        except: pass
     
     page.remove_listener("response", on_response)
     
