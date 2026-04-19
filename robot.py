@@ -470,34 +470,51 @@ def extrair_links_universal(page, alvo_url):
     # === FASE 2.7: SPAs com listagem — clica em itens para revelar links de download ===
     if not links_pdf:
         try:
+            # Intercepta window.open() para capturar URLs de PDF abertas via popup
+            page.evaluate("""
+                window.__captured_opens = [];
+                window.__original_open = window.open;
+                window.open = function(url) {
+                    window.__captured_opens.push(url);
+                    return window.__original_open.apply(this, arguments);
+                };
+            """)
+            
             # Procura QUALQUER elemento com texto "Baixar", "Download" etc.
             termos_clique = ["baixar", "download"]
-            clicados = 0
             for termo in termos_clique:
-                elementos_clique = page.get_by_text(termo, exact=False).all()
+                elementos_clique = page.get_by_text(termo, exact=True).all()
+                if not elementos_clique:
+                    # Tenta busca parcial
+                    elementos_clique = page.locator(f"*:has-text('{termo}')").all()
                 for el in elementos_clique[:5]:
                     try:
-                        el.click(timeout=3000)
-                        page.wait_for_timeout(2000)
-                        clicados += 1
-                        # Captura novos links de download no HTML atualizado
-                        html_atualizado = page.content()
-                        novos_downloads = re.findall(r'["\']([^"\']*downloadEncrypted[^"\']*)["\']', html_atualizado, re.IGNORECASE)
-                        for href in novos_downloads:
-                            if len(href) < 50: continue  # PDFs reais têm URLs longas
-                            href_full = urljoin(base_url, href) if not href.startswith("http") else href
-                            if href_full not in seen:
-                                links_pdf.append(href_full)
-                                seen.add(href_full)
-                        # Também captura links de download genéricos (não só Encrypted)
-                        novos_genericos = re.findall(r'["\']([^"\']*(?:/download/|/baixar/)[^"\']*)["\']', html_atualizado, re.IGNORECASE)
-                        for href in novos_genericos:
-                            if len(href) < 10: continue
-                            href_full = urljoin(base_url, href) if not href.startswith("http") else href
-                            if href_full not in seen and not _is_non_pdf_extension(href_full):
-                                links_pdf.append(href_full)
-                                seen.add(href_full)
-                        if links_pdf: break
+                        # Verifica se é um elemento pequeno (botão, link) não um container grande
+                        box = el.bounding_box()
+                        if box and box['width'] < 300 and box['height'] < 100:
+                            el.click(timeout=3000)
+                            page.wait_for_timeout(2000)
+                            
+                            # Captura URLs de window.open()
+                            captured = page.evaluate("window.__captured_opens || []")
+                            for cap_url in captured:
+                                if cap_url and len(cap_url) > 20:
+                                    cap_full = urljoin(base_url, cap_url) if not cap_url.startswith("http") else cap_url
+                                    if cap_full not in seen:
+                                        links_pdf.append(cap_full)
+                                        seen.add(cap_full)
+                            
+                            # Também captura novos downloadEncrypted no HTML
+                            html_atualizado = page.content()
+                            novos = re.findall(r'["\']([^"\']*downloadEncrypted[^"\']*)["\']', html_atualizado, re.IGNORECASE)
+                            for href in novos:
+                                if len(href) < 50: continue
+                                href_full = urljoin(base_url, href) if not href.startswith("http") else href
+                                if href_full not in seen:
+                                    links_pdf.append(href_full)
+                                    seen.add(href_full)
+                            
+                            if links_pdf: break
                     except: continue
                 if links_pdf: break
         except: pass
