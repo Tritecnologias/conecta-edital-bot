@@ -327,341 +327,156 @@ def worker_processar_pdf(dados_pacote):
         session.close()
         local_engine.dispose()
 
-def extrair_links_imprensa_oficial(page, alvo_url):
-    """Layout padrão genérico — reconstrói URLs relativas usando o domínio real do site."""
+def extrair_links_universal(page, alvo_url):
+    """Extrator universal de PDFs — funciona com qualquer layout de site."""
+    import re
     from urllib.parse import urljoin, urlparse
-    links_candidatos = []
-    seen_links = set()
-    termos_interesse = ["visualizar", "exibe_do", "pdf", "anexo", "integra", "download", "arquivo", "publicacao", "edicao", "diario"]
+    
     parsed = urlparse(alvo_url)
     base_url = f"{parsed.scheme}://{parsed.netloc}"
-
-    elementos = page.locator("a").all()
-    paginas_intermediarias = []
-
-    for link in elementos:
-        try:
-            href = link.get_attribute("href")
-            if not href or href.startswith("javascript") or href == "#": continue
-            href_full = urljoin(base_url, href) if not href.startswith("http") else href
-            # Páginas intermediárias que contêm o PDF embutido
-            if any(t in href.lower() for t in ["prepara-pdf", "visualizar", "exibe_do", "ler/"]):
-                paginas_intermediarias.append(href_full)
-            elif any(t in href.lower() for t in termos_interesse):
-                if href_full not in seen_links:
-                    links_candidatos.append(href_full)
-                    seen_links.add(href_full)
-        except: continue
-
-    # Entra nas páginas intermediárias para extrair a URL real do PDF
-    for pag_url in paginas_intermediarias[:5]:
-        try:
-            p2 = page.context.new_page()
-            p2.goto(pag_url, timeout=20000)
-            p2.wait_for_timeout(2000)
-            # Captura URLs de PDF nas respostas de rede
-            for l in p2.locator("a, iframe").all():
-                try:
-                    href = l.get_attribute("href") or l.get_attribute("src") or ""
-                    if ".pdf" in href.lower() and href not in seen_links:
-                        href_full = urljoin(base_url, href) if not href.startswith("http") else href
-                        links_candidatos.append(href_full)
-                        seen_links.add(href_full)
-                except: continue
-            p2.close()
-        except: pass
-
-    return links_candidatos
-
-def extrair_links_portalfacil(page, alvo_url):
-    """Layout portalfacil / invista.valadares — chama API AjaxPro diretamente para obter GUIDs dos PDFs"""
-    import re
-    from urllib.parse import urlparse
-
-    links_candidatos = []
-    seen_links = set()
-
-    # Intercepta a resposta AjaxPro que contém a DataTable com os arquivos
+    
+    links_pdf = []
+    links_promissores = []
+    seen = set()
+    
+    # === FASE 1: Intercepta PDFs carregados via rede (AJAX, JS dinâmico) ===
+    pdfs_rede = []
     ajax_data = []
+    
     def on_response(res):
-        if "ajaxpro/diel_diel_lis" in res.url:
+        url = res.url
+        # Captura PDFs diretos na rede
+        content_type = res.headers.get("content-type", "")
+        if ".pdf" in url.lower() or "pdf" in content_type.lower():
+            if url not in seen:
+                pdfs_rede.append(url)
+                seen.add(url)
+        # Captura respostas AJAX que podem conter GUIDs (portalfacil)
+        if "ajaxpro" in url and "diel_diel_lis" in url:
             try:
                 body = res.body().decode("utf-8", errors="ignore")
-                if "NMARQUIVO" in body or "NMARQUIVO" in body:
+                if "NMARQUIVO" in body:
                     ajax_data.append(body)
             except: pass
-
+    
     page.on("response", on_response)
     page.wait_for_timeout(2000)
-
-    # Clica no primeiro GetDiario para disparar a requisição AJAX
-    links = page.locator("a").all()
-    for l in links:
-        try:
-            href = l.get_attribute("href") or ""
-            if "GetDiario(1)" in href:
-                l.click(timeout=5000)
-                page.wait_for_timeout(4000)
-                break
-        except: pass
-
-    page.remove_listener("response", on_response)
-
-    # Extrai GUIDs do tipo {XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX} das respostas AJAX
-    base_domain = urlparse(alvo_url).netloc  # ex: invista.valadares.mg.gov.br
-    # Tenta montar URL do blob storage a partir do domínio
-    # Padrão: portalfacilarquivos.blob.core.windows.net/uploads/CIDADE/diario/{GUID}/{GUID}.pdf
-    # Extrai o nome da cidade do domínio (ex: GOVERNADORVALADARES)
-    cidade_blob = base_domain.split(".")[0].upper().replace("-", "")
-
-    guids_encontrados = []
-    for body in ajax_data:
-        guids = re.findall(r'\{([0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12})\}', body)
-        guids_encontrados.extend(guids)
-
-    for guid in guids_encontrados:
-        guid_upper = guid.upper()
-        url_pdf = f"https://{base_domain}/abrir_arquivo.aspx?cdLocal=12&arquivo=%7B{guid_upper}%7D.pdf"
-        if url_pdf not in seen_links:
-            links_candidatos.append(url_pdf)
-            seen_links.add(url_pdf)
-
-    # Fallback: tenta links diretos com termos de interesse
-    if not links_candidatos:
-        termos_interesse = ["pdf", "download", "arquivo", "diario", "publicacao", "edicao", "visualizar", "anexo"]
-        from urllib.parse import urljoin
-        for link in page.locator("a").all():
-            try:
-                href = link.get_attribute("href") or ""
-                if href.startswith("javascript"): continue
-                if any(t in href.lower() for t in termos_interesse) and href not in seen_links:
-                    if not href.startswith("http"):
-                        href = urljoin(alvo_url, href)
-                    links_candidatos.append(href)
-                    seen_links.add(href)
-            except: continue
-
-    return links_candidatos
-
-def extrair_links_barbacena(page, alvo_url):
-    """Layout barbacena.mg.gov.br/portal/diario-oficial — navega na listagem de arquivos"""
-    links_candidatos = []
-    seen_links = set()
     
-    page.wait_for_timeout(2000)
-    
-    # Pega todos os links da página
+    # === FASE 2: Coleta todos os links da página ===
     elementos = page.locator("a").all()
-    termos = ["arquivos", "pdf", "download", "diario", "publicacao", "edicao", "visualizar"]
     for link in elementos:
         try:
             href = link.get_attribute("href") or ""
-            if not href.startswith("http"):
-                from urllib.parse import urljoin
-                href = urljoin(alvo_url, href)
-            if any(t in href.lower() for t in termos) and href not in seen_links:
-                links_candidatos.append(href)
-                seen_links.add(href)
-        except: continue
-
-    # Se achou página de listagem de arquivos, entra nela para pegar PDFs
-    paginas_arquivo = [l for l in links_candidatos if "arquivos" in l.lower()]
-    links_pdf_finais = [l for l in links_candidatos if l.lower().endswith(".pdf")]
-    
-    if paginas_arquivo and not links_pdf_finais:
-        try:
-            page.goto(paginas_arquivo[0], timeout=30000)
-            page.wait_for_timeout(2000)
-            for link in page.locator("a").all():
+            if not href or href == "#" or href.startswith("javascript:void"): continue
+            
+            href_lower = href.lower()
+            href_full = urljoin(base_url, href) if not href.startswith("http") else href
+            
+            # Links javascript com funções de diário (portalfacil)
+            if href.startswith("javascript:") and "GetDiario(" in href and "Calendar" not in href:
                 try:
-                    href = link.get_attribute("href") or ""
-                    if not href.startswith("http"):
-                        from urllib.parse import urljoin
-                        href = urljoin(alvo_url, href)
-                    if ("pdf" in href.lower() or "download" in href.lower()) and href not in seen_links:
-                        links_pdf_finais.append(href)
-                        seen_links.add(href)
-                except: continue
-        except: pass
-        return links_pdf_finais
-
-    return links_candidatos
-
-def extrair_links_controlemunicipal(page, alvo_url):
-    """Layout ingadigital/controlemunicipal — links de publicacao.php que contêm o PDF"""
-    links_candidatos = []
-    seen_links = set()
-    
-    page.wait_for_timeout(2000)
-    elementos = page.locator("a").all()
-    
-    for link in elementos:
-        try:
-            href = link.get_attribute("href") or ""
-            if "controlemunicipal.com.br/site/diario/publicacao.php" in href and href not in seen_links:
-                links_candidatos.append(href)
-                seen_links.add(href)
-        except: continue
-
-    # Para cada página de publicação, extrai o link direto do PDF
-    links_pdf = []
-    for pub_url in links_candidatos[:10]:  # limita a 10 mais recentes
-        try:
-            p2 = page.context.new_page()
-            p2.goto(pub_url, timeout=20000)
-            p2.wait_for_timeout(2000)
-            for link in p2.locator("a").all():
-                try:
-                    href = link.get_attribute("href") or ""
-                    if href.lower().endswith(".pdf") and href not in seen_links:
-                        if not href.startswith("http"):
-                            href = "http://www.controlemunicipal.com.br" + href
-                        links_pdf.append(href)
-                        seen_links.add(href)
-                except: continue
-            # Também tenta iframe com PDF embutido
-            for iframe in p2.locator("iframe").all():
-                try:
-                    src = iframe.get_attribute("src") or ""
-                    if src.lower().endswith(".pdf") and src not in seen_links:
-                        links_pdf.append(src)
-                        seen_links.add(src)
-                except: continue
-            p2.close()
-        except: pass
-
-    return links_pdf if links_pdf else links_candidatos
-
-def extrair_links_criciuma(page, alvo_url):
-    """Layout criciuma.sc.gov.br/does.php — dois niveis: lista de paginas HTML, cada uma tem o PDF certificado"""
-    from urllib.parse import urljoin
-    links_pdf = []
-    seen_links = set()
-
-    print("[DEBUG] extrair_links_criciuma: iniciando...", flush=True)
-    
-    # Escreve arquivo antes de qualquer chamada Playwright
-    try:
-        with open("debug_criciuma.txt", "w", encoding="utf-8") as f:
-            f.write(f"extrair_links_criciuma iniciada\nalvo_url={alvo_url}\n")
-    except Exception as e:
-        print(f"[DEBUG] Falha ao escrever debug_criciuma.txt: {e}", flush=True)
-
-    # Aguarda carregamento completo da listagem
-    try:
-        page.wait_for_load_state("domcontentloaded", timeout=15000)
-        page.wait_for_timeout(3000)
-    except: pass
-
-    # DIAGNÓSTICO - remove depois de funcionar
-    try:
-        page.screenshot(path="debug_criciuma_lista.png")
-        total_links = page.locator("a").count()
-        total_does = page.locator("a.does").count()
-        url_atual = page.url
-        with open("debug_criciuma.txt", "w", encoding="utf-8") as f:
-            f.write(f"URL atual: {url_atual}\n")
-            f.write(f"Total <a>: {total_links}\n")
-            f.write(f"Total <a.does>: {total_does}\n")
-            hrefs = [page.locator("a").nth(i).get_attribute("href") or "" for i in range(min(20, total_links))]
-            f.write(f"Primeiros 20 hrefs:\n" + "\n".join(hrefs))
-    except Exception as diag_e:
-        log_debug(f"Diagnóstico Criciuma falhou: {diag_e}")
-
-    # Nivel 1: pega links — seletor pela classe CSS real do site (a.does)
-    paginas_diario = []
-    seen_paginas = set()
-    try:
-        for link in page.locator("a.does").all():
-            try:
-                href = link.get_attribute("href") or ""
-                if not href: continue
-                if not href.startswith("http"): href = urljoin(alvo_url, href)
-                href = href.split("#")[0]
-                if href not in seen_paginas:
-                    paginas_diario.append(href)
-                    seen_paginas.add(href)
-            except: continue
-    except: pass
-
-    # Fallback: qualquer <a> com doe.php?diario= no href
-    if not paginas_diario:
-        for link in page.locator("a").all():
-            try:
-                href = link.get_attribute("href") or ""
-                if "doe.php" in href and "diario=" in href:
-                    if not href.startswith("http"): href = urljoin(alvo_url, href)
-                    href = href.split("#")[0]
-                    if href not in seen_paginas:
-                        paginas_diario.append(href)
-                        seen_paginas.add(href)
-            except: continue
-
-    # Nivel 2: usa requests+regex para buscar o PDF em cada pagina individual
-    # (sem dependencia de bs4/BeautifulSoup, usa apenas built-ins)
-    import re
-    import requests as req_mod
-    headers_req = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'Accept-Language': 'pt-BR,pt;q=0.9',
-        'Referer': alvo_url
-    }
-    print(f"[DEBUG] Criciuma Level1: {len(paginas_diario)} paginas. Iniciando Level2 via requests+regex...", flush=True)
-    for url_diario in paginas_diario[:15]:
-        try:
-            resp = req_mod.get(url_diario, headers=headers_req, timeout=20, verify=False)
-            if resp.status_code != 200:
-                print(f"[DEBUG] Level2 HTTP {resp.status_code} para {url_diario}", flush=True)
+                    link.click(timeout=5000)
+                    page.wait_for_timeout(3000)
+                except: pass
                 continue
-            html = resp.text
-            # Tenta achar link direto de PDF (.pdf no href)
-            pdf_matches = re.findall(r'href=["\']([^"\']+\.pdf(?:\?[^"\']*)?)["\']', html, re.IGNORECASE)
-            encontrou = False
-            for href in pdf_matches:
-                if not href.startswith("http"): href = urljoin(url_diario, href)
-                if href not in seen_links:
-                    links_pdf.append(href)
-                    seen_links.add(href)
-                    print(f"[DEBUG] PDF direto: {href}", flush=True)
-                    encontrou = True
-                    break
-            if not encontrou:
-                # Tenta achar link com texto "certificad" ou "download"
-                cert = re.search(r'href=["\']([^"\']{5,})["\'][^>]*>\s*(?:<[^>]+>\s*)*(?:versão\s+)?(?:certificad|download)', html, re.IGNORECASE)
-                if cert:
-                    href = cert.group(1)
-                    if not href.startswith("http"): href = urljoin(url_diario, href)
-                    if href not in seen_links and href.startswith("http"):
-                        links_pdf.append(href)
-                        seen_links.add(href)
-                        print(f"[DEBUG] Link certificado: {href}", flush=True)
-        except Exception as e2:
-            print(f"[DEBUG] Erro Level2 {url_diario}: {e2}", flush=True)
-
+            
+            if href.startswith("javascript:"): continue
+            
+            # PDF direto
+            if ".pdf" in href_lower:
+                if href_full not in seen:
+                    links_pdf.append(href_full)
+                    seen.add(href_full)
+                continue
+            
+            # Links promissores para navegar depois
+            termos = ["download", "visualizar", "prepara-pdf", "publicacao", "exibe_do", 
+                      "integra", "anexo", "edicao", "doe.php", "diario"]
+            if any(t in href_lower for t in termos):
+                if href_full not in seen:
+                    links_promissores.append(href_full)
+                    seen.add(href_full)
+        except: continue
+    
+    # Captura iframes com PDFs
+    for iframe in page.locator("iframe").all():
+        try:
+            src = iframe.get_attribute("src") or ""
+            if ".pdf" in src.lower():
+                src_full = urljoin(base_url, src) if not src.startswith("http") else src
+                if src_full not in seen:
+                    links_pdf.append(src_full)
+                    seen.add(src_full)
+        except: continue
+    
+    page.remove_listener("response", on_response)
+    
+    # Adiciona PDFs capturados via rede
+    links_pdf.extend(pdfs_rede)
+    
+    # === FASE 3: Processa GUIDs do AjaxPro (portalfacil) ===
+    if ajax_data:
+        guids = []
+        for body in ajax_data:
+            guids += re.findall(r'\{([0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12})\}', body)
+        for guid in guids:
+            guid_upper = guid.upper()
+            url_pdf = f"https://{parsed.netloc}/abrir_arquivo.aspx?cdLocal=12&arquivo=%7B{guid_upper}%7D.pdf"
+            if url_pdf not in seen:
+                links_pdf.append(url_pdf)
+                seen.add(url_pdf)
+    
+    # === FASE 4: Se não achou PDFs diretos, navega nos links promissores ===
+    if not links_pdf and links_promissores:
+        for pag_url in links_promissores[:10]:
+            try:
+                p2 = page.context.new_page()
+                
+                # Intercepta PDFs na rede da sub-página
+                sub_pdfs = []
+                def on_sub_response(res):
+                    if ".pdf" in res.url.lower() or "pdf" in res.headers.get("content-type", "").lower():
+                        if res.url not in seen:
+                            sub_pdfs.append(res.url)
+                            seen.add(res.url)
+                p2.on("response", on_sub_response)
+                
+                p2.goto(pag_url, timeout=20000)
+                p2.wait_for_timeout(2000)
+                
+                # Procura PDFs nos links e iframes da sub-página
+                for el in p2.locator("a, iframe").all():
+                    try:
+                        href = el.get_attribute("href") or el.get_attribute("src") or ""
+                        if ".pdf" in href.lower():
+                            href_full = urljoin(pag_url, href) if not href.startswith("http") else href
+                            if href_full not in seen:
+                                links_pdf.append(href_full)
+                                seen.add(href_full)
+                    except: continue
+                
+                links_pdf.extend(sub_pdfs)
+                p2.close()
+            except: pass
+    
+    # === FASE 5: Fallback — links com termos de interesse que sobraram ===
+    if not links_pdf:
+        termos_fallback = ["pdf", "download", "arquivo", "publicacao"]
+        for link in page.locator("a").all():
+            try:
+                href = link.get_attribute("href") or ""
+                if href.startswith("javascript") or href == "#": continue
+                href_full = urljoin(base_url, href) if not href.startswith("http") else href
+                if any(t in href.lower() for t in termos_fallback) and href_full not in seen:
+                    links_pdf.append(href_full)
+                    seen.add(href_full)
+            except: continue
+    
     return links_pdf
 
 def detectar_layout_e_extrair(page, alvo_url):
-    """Detecta o tipo de site e usa o extrator correto."""
-    url_lower = alvo_url.lower()
-    print(f"[DEBUG] detectar_layout_e_extrair: url={alvo_url}", flush=True)
-    
-    if "ingadigital.com.br" in url_lower or "controlemunicipal.com.br" in url_lower:
-        return extrair_links_controlemunicipal(page, alvo_url)
-    
-    if "barbacena.mg.gov.br" in url_lower:
-        return extrair_links_barbacena(page, alvo_url)
-    
-    if "portalfacil.com.br" in url_lower or "invista." in url_lower or "valadares.mg.gov.br" in url_lower:
-        return extrair_links_portalfacil(page, alvo_url)
-
-    if "criciuma.sc.gov.br" in url_lower:
-        print("[DEBUG] Detectou Criciuma! Chamando extrair_links_criciuma", flush=True)
-        return extrair_links_criciuma(page, alvo_url)
-    
-    # Default: imprensa oficial municipal
-    print("[DEBUG] Usando extrator padrao", flush=True)
-    return extrair_links_imprensa_oficial(page, alvo_url)
+    """Usa o extrator universal para qualquer site."""
+    return extrair_links_universal(page, alvo_url)
 
 def processar_cidade(cidade_nome, alvo_url, palavras_chave_manual="", forcar=False):
     relatorio_geral = []
