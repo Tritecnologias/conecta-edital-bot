@@ -450,10 +450,11 @@ def extrair_links_universal(page, alvo_url):
     # === FASE 2.5: Busca links no HTML renderizado (SPAs geram links via JS) ===
     try:
         html = page.content()
-        # Procura URLs de download encriptado ou servlets que servem PDFs
-        download_urls = re.findall(r'href=["\']([^"\']*(?:download|baixar)[^"\']*)["\']', html, re.IGNORECASE)
+        # Procura URLs de download em qualquer atributo ou string JS (não só href)
+        download_urls = re.findall(r'["\']([^"\']*(?:download|baixar)[^"\']*)["\']', html, re.IGNORECASE)
         for href in download_urls:
-            if href.startswith("javascript") or href == "#": continue
+            if href.startswith("javascript") or href == "#" or len(href) < 10: continue
+            if not href.startswith("http") and not href.startswith("/"):continue
             href_full = urljoin(base_url, href) if not href.startswith("http") else href
             if href_full not in seen and not _is_non_pdf_extension(href_full):
                 links_pdf.append(href_full)
