@@ -402,8 +402,17 @@ def extrair_links_universal(page, alvo_url):
             
             # Links promissores para navegar depois
             termos = ["download", "visualizar", "prepara-pdf", "publicacao", "exibe_do", 
-                      "integra", "anexo", "edicao", "doe.php", "diario"]
-            if any(t in href_lower for t in termos):
+                      "integra", "anexo", "edicao", "doe.php", "diario", "baixar", "/ver/"]
+            
+            # Links de download direto (sem extensão = provavelmente PDF servido dinamicamente)
+            is_download_link = "download" in href_lower or "baixar" in href_lower
+            has_no_extension = '.' not in href_full.split('/')[-1].split('?')[0]
+            
+            if is_download_link and has_no_extension and not _is_non_pdf_extension(href_full):
+                if href_full not in seen:
+                    links_pdf.append(href_full)
+                    seen.add(href_full)
+            elif any(t in href_lower for t in termos):
                 if href_full not in seen:
                     links_promissores.append(href_full)
                     seen.add(href_full)
@@ -459,9 +468,18 @@ def extrair_links_universal(page, alvo_url):
                 for el in p2.locator("a, iframe").all():
                     try:
                         href = el.get_attribute("href") or el.get_attribute("src") or ""
-                        if ".pdf" in href.lower():
-                            href_full = urljoin(pag_url, href) if not href.startswith("http") else href
+                        href_full = urljoin(pag_url, href) if not href.startswith("http") else href
+                        href_lower = href.lower()
+                        
+                        # PDF direto
+                        if ".pdf" in href_lower:
                             if href_full not in seen and not _is_non_pdf_extension(href_full):
+                                links_pdf.append(href_full)
+                                seen.add(href_full)
+                        # Link de download sem extensão (provavelmente PDF dinâmico)
+                        elif ("download" in href_lower or "baixar" in href_lower):
+                            has_no_ext = '.' not in href_full.split('/')[-1].split('?')[0]
+                            if has_no_ext and href_full not in seen and not _is_non_pdf_extension(href_full):
                                 links_pdf.append(href_full)
                                 seen.add(href_full)
                     except: continue
