@@ -470,27 +470,36 @@ def extrair_links_universal(page, alvo_url):
     # === FASE 2.7: SPAs com listagem — clica em itens para revelar links de download ===
     if not links_pdf:
         try:
-            # Procura botões "Baixar" ou linhas de tabela com diários
-            botoes_baixar = page.locator("a, button").all()
+            # Procura QUALQUER elemento com texto "Baixar", "Download" etc.
+            termos_clique = ["baixar", "download"]
             clicados = 0
-            for btn in botoes_baixar:
-                try:
-                    txt = btn.inner_text().strip().lower()
-                    if txt in ["baixar", "download", "ver", "abrir"]:
-                        btn.click(timeout=3000)
+            for termo in termos_clique:
+                elementos_clique = page.get_by_text(termo, exact=False).all()
+                for el in elementos_clique[:5]:
+                    try:
+                        el.click(timeout=3000)
                         page.wait_for_timeout(2000)
                         clicados += 1
                         # Captura novos links de download no HTML atualizado
                         html_atualizado = page.content()
                         novos_downloads = re.findall(r'["\']([^"\']*downloadEncrypted[^"\']*)["\']', html_atualizado, re.IGNORECASE)
                         for href in novos_downloads:
-                            if len(href) < 20: continue
+                            if len(href) < 50: continue  # PDFs reais têm URLs longas
                             href_full = urljoin(base_url, href) if not href.startswith("http") else href
                             if href_full not in seen:
                                 links_pdf.append(href_full)
                                 seen.add(href_full)
-                        if clicados >= 5 or links_pdf: break
-                except: continue
+                        # Também captura links de download genéricos (não só Encrypted)
+                        novos_genericos = re.findall(r'["\']([^"\']*(?:/download/|/baixar/)[^"\']*)["\']', html_atualizado, re.IGNORECASE)
+                        for href in novos_genericos:
+                            if len(href) < 10: continue
+                            href_full = urljoin(base_url, href) if not href.startswith("http") else href
+                            if href_full not in seen and not _is_non_pdf_extension(href_full):
+                                links_pdf.append(href_full)
+                                seen.add(href_full)
+                        if links_pdf: break
+                    except: continue
+                if links_pdf: break
         except: pass
     
     page.remove_listener("response", on_response)
