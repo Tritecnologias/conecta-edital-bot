@@ -411,11 +411,13 @@ def extrair_links_universal(page, alvo_url):
             
             if href.startswith("javascript:"): continue
             
-            # PDF direto
+            # PDF direto — exclui documentos institucionais (política, privacidade, termo)
             if ".pdf" in href_lower:
-                if href_full not in seen:
-                    links_pdf.append(href_full)
-                    seen.add(href_full)
+                termos_excluir = ["privacidade", "politica", "termo-de-uso", "cookie", "lgpd"]
+                if not any(t in href_lower for t in termos_excluir):
+                    if href_full not in seen:
+                        links_pdf.append(href_full)
+                        seen.add(href_full)
                 continue
             
             # Links promissores para navegar depois
