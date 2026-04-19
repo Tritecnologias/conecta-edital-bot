@@ -82,6 +82,18 @@ def baixar_pdf(nome_arquivo: str):
         return FileResponse(caminho, media_type="application/pdf", filename=nome_arquivo)
     raise HTTPException(status_code=404, detail="Arquivo não encontrado no servidor.")
 
+# --- ROTA 5: LOGS EM TEMPO REAL ---
+@app.get("/5-logs/{protocolo}", summary="5. Logs em tempo real")
+def obter_logs(protocolo: str):
+    todos = robot.ler_status()
+    tarefa = todos.get(protocolo)
+    if not tarefa:
+        raise HTTPException(status_code=404, detail="Protocolo não encontrado.")
+    return {
+        "status": tarefa.get("status", "DESCONHECIDO"),
+        "logs": tarefa.get("logs", [])
+    }
+
 # --- FRONTEND ESTÁTICO (build do React) ---
 DIST_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dist")
 if os.path.exists(DIST_DIR):

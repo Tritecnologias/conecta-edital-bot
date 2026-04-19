@@ -56,7 +56,21 @@ def salvar_status_tarefa(task_id, status, dados=None):
         tarefa_atual["status"] = status
         tarefa_atual["updated_at"] = str(time.time())
         if dados: tarefa_atual["resultado"] = dados
+        if "logs" not in tarefa_atual: tarefa_atual["logs"] = []
         todos_status[task_id] = tarefa_atual
+        with open(ARQUIVO_STATUS, "w") as f: json.dump(todos_status, f, indent=4)
+    except: pass
+
+def adicionar_log(task_id, mensagem):
+    """Adiciona uma linha de log em tempo real para acompanhamento."""
+    try:
+        todos_status = ler_status()
+        tarefa = todos_status.get(task_id, {})
+        if "logs" not in tarefa: tarefa["logs"] = []
+        tarefa["logs"].append({"ts": str(time.time()), "msg": mensagem})
+        # Mantém no máximo 100 logs
+        if len(tarefa["logs"]) > 100: tarefa["logs"] = tarefa["logs"][-100:]
+        todos_status[task_id] = tarefa
         with open(ARQUIVO_STATUS, "w") as f: json.dump(todos_status, f, indent=4)
     except: pass
 
@@ -508,11 +522,16 @@ def detectar_layout_e_extrair(page, alvo_url):
     """Usa o extrator universal para qualquer site."""
     return extrair_links_universal(page, alvo_url)
 
-def processar_cidade(cidade_nome, alvo_url, palavras_chave_manual="", forcar=False):
+def processar_cidade(cidade_nome, alvo_url, palavras_chave_manual="", forcar=False, task_id=None):
     relatorio_geral = []
     garantir_keyword_manual()
     
     if os.path.exists(ARQUIVO_DEBUG): os.remove(ARQUIVO_DEBUG)
+
+    def _log(msg):
+        if task_id: adicionar_log(task_id, msg)
+
+    _log(f"🌐 Acessando {alvo_url}")
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
@@ -521,14 +540,17 @@ def processar_cidade(cidade_nome, alvo_url, palavras_chave_manual="", forcar=Fal
             page.goto(alvo_url, timeout=60000)
             page.wait_for_timeout(3000)
             
+            _log("🔍 Procurando links de PDF na página...")
             links_candidatos = detectar_layout_e_extrair(page, alvo_url)
             
             if not links_candidatos: 
+                _log("❌ Nenhum PDF encontrado na página")
                 try: page.screenshot(path=f"erro_layout_{cidade_nome}.png")
                 except: pass
-                return "🚨 CRÍTICO: Zero arquivos encontrados! O site pode ter mudado o layout ou está offline. Verifique manualmente."
+                return "🚨 CRÍTICO: Zero arquivos encontrados! O site pode ter mudado o layout ou está offline."
 
-            # Captura cookies do Playwright para repassar ao requests (evita 403 por sessão)
+            _log(f"📄 {len(links_candidatos)} link(s) encontrado(s)")
+
             cookies_playwright = page.context.cookies()
             cookies_dict = {c['name']: c['value'] for c in cookies_playwright}
 
@@ -559,16 +581,25 @@ def processar_cidade(cidade_nome, alvo_url, palavras_chave_manual="", forcar=Fal
                     })
             finally: session_main.close()
 
-            if not tarefas: return "⚠️ Nenhum arquivo novo."
+            if not tarefas:
+                _log("⚠️ Nenhum arquivo novo para processar")
+                return "⚠️ Nenhum arquivo novo."
+
+            _log(f"⬇️ Baixando e processando {len(tarefas)} documento(s)...")
 
             with concurrent.futures.ProcessPoolExecutor(max_workers=2) as executor:
                 resultados = list(executor.map(worker_processar_pdf, tarefas))
             
+            for r in resultados:
+                _log(r)
             relatorio_geral.extend(resultados)
 
-        except Exception as e: return f"❌ ERRO CRÍTICO: {str(e)}"
+        except Exception as e:
+            _log(f"❌ ERRO: {str(e)}")
+            return f"❌ ERRO CRÍTICO: {str(e)}"
         finally: browser.close()
     
+    _log("✅ Processamento concluído")
     return " | ".join(relatorio_geral)
 
 if __name__ == "__main__":
@@ -580,7 +611,8 @@ if __name__ == "__main__":
         forcar = sys.argv[5].lower() == 'true'
         try:
             salvar_status_tarefa(task_id, "RODANDO")
-            resultado = processar_cidade(cidade, url, kws, forcar)
+            adicionar_log(task_id, f"🚀 Iniciando busca em {cidade}")
+            resultado = processar_cidade(cidade, url, kws, forcar, task_id=task_id)
             salvar_status_tarefa(task_id, "CONCLUIDO", resultado)
         except Exception as e:
             salvar_status_tarefa(task_id, "ERRO", str(e))
