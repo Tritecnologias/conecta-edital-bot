@@ -470,6 +470,10 @@ def extrair_links_universal(page, alvo_url):
     # === FASE 2.7: SPAs com listagem — clica em itens para revelar links de download ===
     if not links_pdf:
         try:
+            # Guarda downloadEncrypted pré-existentes para ignorar (ex: brasão)
+            html_pre = page.content()
+            pre_existentes = set(re.findall(r'["\']([^"\']*downloadEncrypted\?[^"\']+)["\']', html_pre, re.IGNORECASE))
+            
             # Intercepta window.open() para capturar URLs de PDF abertas via popup
             page.evaluate("""
                 window.__captured_opens = [];
@@ -507,10 +511,11 @@ def extrair_links_universal(page, alvo_url):
                                     links_pdf.append(cap_full)
                                     seen.add(cap_full)
                         
-                        # Captura novos downloadEncrypted no HTML
+                        # Captura novos downloadEncrypted no HTML (ignora pré-existentes como brasão)
                         html_atualizado = page.content()
                         novos = re.findall(r'["\']([^"\']*downloadEncrypted\?[^"\']{50,})["\']', html_atualizado, re.IGNORECASE)
                         for href in novos:
+                            if href in pre_existentes: continue
                             href_full = urljoin(base_url, href) if not href.startswith("http") else href
                             if href_full not in seen:
                                 links_pdf.append(href_full)
