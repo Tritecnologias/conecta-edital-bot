@@ -387,6 +387,10 @@ def extrair_links_universal(page, alvo_url):
     page.on("response", on_response)
     page.wait_for_timeout(2000)
     
+    # Espera extra para SPAs — se a URL tem hash (#), espera o JS carregar o conteúdo
+    if '#' in alvo_url:
+        page.wait_for_timeout(5000)
+    
     # === FASE 2: Coleta todos os links da página ===
     elementos = page.locator("a").all()
     for link in elementos:
@@ -419,8 +423,8 @@ def extrair_links_universal(page, alvo_url):
                       "integra", "anexo", "edicao", "doe.php", "diario", "baixar", "/ver/"]
             
             # Links de download direto (sem extensão = provavelmente PDF servido dinamicamente)
-            is_download_link = "download" in href_lower or "baixar" in href_lower
-            has_no_extension = '.' not in href_full.split('/')[-1].split('?')[0]
+            is_download_link = "download" in href_lower or "baixar" in href_lower or "downloadencrypted" in href_lower
+            has_no_extension = '.' not in href_full.split('/')[-1].split('?')[0] or 'download' in href_lower.split('?')[0]
             
             if is_download_link and has_no_extension and not _is_non_pdf_extension(href_full):
                 if href_full not in seen:
@@ -442,6 +446,19 @@ def extrair_links_universal(page, alvo_url):
                     links_pdf.append(src_full)
                     seen.add(src_full)
         except: continue
+    
+    # === FASE 2.5: Busca links no HTML renderizado (SPAs geram links via JS) ===
+    try:
+        html = page.content()
+        # Procura URLs de download encriptado ou servlets que servem PDFs
+        download_urls = re.findall(r'href=["\']([^"\']*(?:download|baixar)[^"\']*)["\']', html, re.IGNORECASE)
+        for href in download_urls:
+            if href.startswith("javascript") or href == "#": continue
+            href_full = urljoin(base_url, href) if not href.startswith("http") else href
+            if href_full not in seen and not _is_non_pdf_extension(href_full):
+                links_pdf.append(href_full)
+                seen.add(href_full)
+    except: pass
     
     page.remove_listener("response", on_response)
     
