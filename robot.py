@@ -559,7 +559,15 @@ def processar_cidade(cidade_nome, alvo_url, palavras_chave_manual="", forcar=Fal
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         try:
-            page = browser.new_page()
+            context = browser.new_context(
+                java_script_enabled=True,
+                accept_downloads=True,
+            )
+            # Permite popups
+            context.grant_permissions([])
+            page = context.new_page()
+            # Fecha popups automaticamente
+            context.on("page", lambda popup: popup.close() if popup != page else None)
             page.goto(alvo_url, timeout=60000)
             page.wait_for_timeout(3000)
             
@@ -620,7 +628,9 @@ def processar_cidade(cidade_nome, alvo_url, palavras_chave_manual="", forcar=Fal
         except Exception as e:
             _log(f"❌ ERRO: {str(e)}")
             return f"❌ ERRO CRÍTICO: {str(e)}"
-        finally: browser.close()
+        finally:
+            context.close()
+            browser.close()
     
     _log("✅ Processamento concluído")
     return " | ".join(relatorio_geral)
