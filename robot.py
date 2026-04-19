@@ -29,6 +29,17 @@ PASTA_PDFS = "pdfs_baixados"
 ARQUIVO_STATUS = "status_tarefas.json"
 ARQUIVO_DEBUG = "debug_leitura.txt"
 
+EXTENSOES_NAO_PDF = {'.pptx', '.docx', '.xlsx', '.ppt', '.doc', '.xls',
+                     '.odt', '.ods', '.odp', '.csv', '.zip', '.rar'}
+
+
+def _is_non_pdf_extension(url):
+    """Check if a URL ends with a known non-PDF document extension."""
+    from urllib.parse import urlparse
+    path = urlparse(url).path.lower()
+    _, ext = os.path.splitext(path)
+    return ext in EXTENSOES_NAO_PDF
+
 if not os.path.exists(PASTA_PDFS):
     os.makedirs(PASTA_PDFS)
 
@@ -450,7 +461,7 @@ def extrair_links_universal(page, alvo_url):
                         href = el.get_attribute("href") or el.get_attribute("src") or ""
                         if ".pdf" in href.lower():
                             href_full = urljoin(pag_url, href) if not href.startswith("http") else href
-                            if href_full not in seen:
+                            if href_full not in seen and not _is_non_pdf_extension(href_full):
                                 links_pdf.append(href_full)
                                 seen.add(href_full)
                     except: continue
@@ -468,11 +479,12 @@ def extrair_links_universal(page, alvo_url):
                 if href.startswith("javascript") or href == "#": continue
                 href_full = urljoin(base_url, href) if not href.startswith("http") else href
                 if any(t in href.lower() for t in termos_fallback) and href_full not in seen:
-                    links_pdf.append(href_full)
-                    seen.add(href_full)
+                    if not _is_non_pdf_extension(href_full):
+                        links_pdf.append(href_full)
+                        seen.add(href_full)
             except: continue
     
-    return links_pdf
+    return [link for link in links_pdf if not _is_non_pdf_extension(link)]
 
 def detectar_layout_e_extrair(page, alvo_url):
     """Usa o extrator universal para qualquer site."""
