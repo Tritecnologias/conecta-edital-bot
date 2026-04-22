@@ -94,6 +94,18 @@ def obter_logs(protocolo: str):
         "logs": tarefa.get("logs", [])
     }
 
+# --- ROTA 6: DIAGNOSTICAR URL ---
+class PedidoDiagnostico(BaseModel):
+    url_alvo: str
+
+@app.post("/6-diagnosticar", summary="6. Diagnosticar URL")
+def diagnosticar_url(pedido: PedidoDiagnostico):
+    task_id = "diag-" + str(uuid.uuid4())
+    robot.salvar_status_tarefa(task_id, "INICIANDO")
+    comando = [sys.executable, "diagnostico_url.py", task_id, pedido.url_alvo]
+    subprocess.Popen(comando)
+    return {"PROTOCOLO": task_id, "msg": "Diagnóstico iniciado. Use o protocolo para acompanhar."}
+
 # --- FRONTEND ESTÁTICO (build do React) ---
 DIST_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dist")
 if os.path.exists(DIST_DIR):
