@@ -425,8 +425,8 @@ def extrair_links_universal(page, alvo_url):
                       "integra", "anexo", "edicao", "doe.php", "diario", "baixar", "/ver/"]
             
             # Links de download direto (sem extensão = provavelmente PDF servido dinamicamente)
-            is_download_link = "download" in href_lower or "baixar" in href_lower or "downloadencrypted" in href_lower
-            has_no_extension = '.' not in href_full.split('/')[-1].split('?')[0] or 'download' in href_lower.split('?')[0]
+            is_download_link = "download" in href_lower or "baixar" in href_lower or "downloadencrypted" in href_lower or "exibe_do" in href_lower
+            has_no_extension = '.' not in href_full.split('/')[-1].split('?')[0] or 'download' in href_lower.split('?')[0] or 'exibe_do' in href_lower
             
             if is_download_link and has_no_extension and not _is_non_pdf_extension(href_full):
                 if href_full not in seen:
