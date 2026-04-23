@@ -463,6 +463,7 @@ def extrair_links_universal(page, alvo_url):
             if ext in extensoes_ignorar: continue
             # Ignora downloadEncrypted — tratado na Fase 2.7 via clique
             if 'downloadencrypted' in href.lower(): continue
+            if any(t in href.lower() for t in ["privacidade", "politica", "termo-de-uso", "cookie", "lgpd"]): continue
             href_full = urljoin(base_url, href) if not href.startswith("http") else href
             if href_full not in seen and not _is_non_pdf_extension(href_full):
                 links_pdf.append(href_full)
@@ -563,8 +564,8 @@ def extrair_links_universal(page, alvo_url):
                 links_pdf.append(url_pdf)
                 seen.add(url_pdf)
     
-    # === FASE 4: Se não achou PDFs diretos, navega nos links promissores ===
-    if not links_pdf and links_promissores:
+    # === FASE 4: Navega nos links promissores para achar PDFs reais ===
+    if links_promissores:
         for pag_url in links_promissores[:10]:
             try:
                 p2 = page.context.new_page()
