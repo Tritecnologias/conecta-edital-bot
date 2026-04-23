@@ -585,18 +585,21 @@ def extrair_links_universal(page, alvo_url):
                 p2.goto(pag_url, timeout=20000)
                 p2.wait_for_timeout(2000)
                 
-                # Procura PDFs nos links e iframes da sub-página
-                for el in p2.locator("a, iframe").all():
+                # Procura PDFs nos links, iframes, embeds e objects da sub-página
+                termos_excluir_sub = ["privacidade", "politica", "termo-de-uso", "cookie", "lgpd",
+                                      "plano_municipal", "lei-complementar", "lei-organica", "tabela-de-vencimentos"]
+                for el in p2.locator("a, iframe, embed, object").all():
                     try:
-                        href = el.get_attribute("href") or el.get_attribute("src") or ""
+                        href = el.get_attribute("href") or el.get_attribute("src") or el.get_attribute("data") or ""
                         href_full = urljoin(pag_url, href) if not href.startswith("http") else href
                         href_lower = href.lower()
                         
-                        # PDF direto
+                        # PDF direto (exclui institucionais)
                         if ".pdf" in href_lower:
-                            if href_full not in seen and not _is_non_pdf_extension(href_full):
-                                links_pdf.append(href_full)
-                                seen.add(href_full)
+                            if not any(t in href_lower for t in termos_excluir_sub):
+                                if href_full not in seen and not _is_non_pdf_extension(href_full):
+                                    links_pdf.append(href_full)
+                                    seen.add(href_full)
                         # Link de download sem extensão (provavelmente PDF dinâmico)
                         elif ("download" in href_lower or "baixar" in href_lower):
                             has_no_ext = '.' not in href_full.split('/')[-1].split('?')[0]
