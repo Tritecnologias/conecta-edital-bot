@@ -346,7 +346,7 @@ def worker_processar_pdf(dados_pacote):
             
         achados_unicos = list(set(achados_doc))
         if achados_unicos: return f"✅ Doc {contador}: Achou {', '.join(achados_unicos)}"
-        else: return f"✅ Doc {contador}: Limpo"
+        else: return f"🔍 Doc {contador}: Nenhuma ocorrência das palavras-chave"
     except Exception as e: return f"❌ Erro Geral Worker {contador}: {e}"
     finally: 
         session.close()
