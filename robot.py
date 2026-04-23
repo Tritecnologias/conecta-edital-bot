@@ -611,10 +611,6 @@ def extrair_links_universal(page, alvo_url):
                 
                 p2.close()
             except: pass
-                    
-                links_pdf.extend(sub_pdfs)
-                p2.close()
-            except: pass
     
     # === FASE 5: Fallback — links com termos de interesse que sobraram ===
     if not links_pdf:
