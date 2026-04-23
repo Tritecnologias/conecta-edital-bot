@@ -653,11 +653,7 @@ def processar_cidade(cidade_nome, alvo_url, palavras_chave_manual="", forcar=Fal
                 java_script_enabled=True,
                 accept_downloads=True,
             )
-            # Permite popups
-            context.grant_permissions([])
             page = context.new_page()
-            # Fecha popups automaticamente
-            context.on("page", lambda popup: popup.close() if popup != page else None)
             page.goto(alvo_url, timeout=60000)
             page.wait_for_timeout(3000)
             
