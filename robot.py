@@ -549,8 +549,11 @@ def extrair_links_universal(page, alvo_url):
     
     page.remove_listener("response", on_response)
     
-    # Adiciona PDFs capturados via rede
-    links_pdf.extend(pdfs_rede)
+    # Adiciona PDFs capturados via rede (filtra institucionais)
+    termos_excluir_rede = ["privacidade", "politica", "termo-de-uso", "cookie", "lgpd"]
+    for url_rede in pdfs_rede:
+        if not any(t in url_rede.lower() for t in termos_excluir_rede):
+            links_pdf.append(url_rede)
     
     # === FASE 3: Processa GUIDs do AjaxPro (portalfacil) ===
     if ajax_data:
@@ -620,7 +623,10 @@ def extrair_links_universal(page, alvo_url):
                         seen.add(href_full)
             except: continue
     
-    return [link for link in links_pdf if not _is_non_pdf_extension(link)]
+    termos_excluir_final = ["privacidade", "politica", "termo-de-uso", "cookie", "lgpd"]
+    return [link for link in links_pdf 
+            if not _is_non_pdf_extension(link) 
+            and not any(t in link.lower() for t in termos_excluir_final)]
 
 def detectar_layout_e_extrair(page, alvo_url):
     """Usa o extrator universal para qualquer site."""
